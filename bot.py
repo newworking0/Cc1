@@ -66,18 +66,50 @@ def check_card(number, exp_month, exp_year, cvc, username="Unknown"):
     country = bin_info.get("country", {}).get("name", "Unknown") if bin_info else "Unknown"
 
     try:
+        # Fix 2-digit year to 4-digit year
+        exp_year = int(exp_year)
+        if exp_year < 100:
+            exp_year += 2000
+
+        # Create PaymentMethod with billing details
         payment_method = stripe.PaymentMethod.create(
             type="card",
             card={
                 "number": number,
                 "exp_month": int(exp_month),
-                "exp_year": int(exp_year),
+                "exp_year": exp_year,
                 "cvc": cvc,
+            },
+            billing_details={
+                "name": "Test User",
+                "address": {
+                    "line1": "123 Test St",
+                    "city": "Test City",
+                    "state": "CA",
+                    "postal_code": "90001",
+                    "country": "US",
+                }
             }
         )
+
+        # Create PaymentIntent with automatic payment methods enabled, no redirects
+        payment_intent = stripe.PaymentIntent.create(
+            amount=100,  # $1.00 in cents
+            currency='usd',
+            payment_method=payment_method.id,
+            confirm=True,
+            off_session=True,
+            automatic_payment_methods={
+                "enabled": True,
+                "allow_redirects": "never"
+            }
+        )
+
         status = "✅ Approved"
-    except stripe.error.CardError:
-        status = "❌ Declined"
+
+    except stripe.error.CardError as e:
+        err = e.error
+        status = f"❌ Declined: {err.code} - {err.message}"
     except Exception as e:
         status = f"⚠️ Error: {str(e)}"
 
@@ -162,7 +194,8 @@ def mass_check(message):
         bot.send_message(message.chat.id, f"🔍 Card {i}: Checking...")
         result = check_card(*card, username=message.from_user.username or "Unknown")
         bot.send_message(message.chat.id, f"Card {i}:\n{result}")
-        time.sleep(1.5)
+        # Speed up batch checking
+        time.sleep(0.5)
 
 # ========== Start Bot ==========
 bot.polling()
